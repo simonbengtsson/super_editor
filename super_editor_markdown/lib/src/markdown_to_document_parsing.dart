@@ -36,13 +36,15 @@ MutableDocument deserializeMarkdownToDocument(
       const _TaskSyntax(),
     ],
   );
-  final blockParser = md.BlockParser(markdownLines, markdownDoc);
+  final blockParser = md.BlockParser(
+      markdownLines.map((line) => md.Line(line)).toList(), markdownDoc);
 
   // Parse markdown string to structured markdown.
   final markdownNodes = blockParser.parseLines();
 
   // Convert structured markdown to a Document.
-  final nodeVisitor = _MarkdownToDocument(customElementToNodeConverters, encodeHtml, syntax);
+  final nodeVisitor =
+      _MarkdownToDocument(customElementToNodeConverters, encodeHtml, syntax);
   for (final node in markdownNodes) {
     node.accept(nodeVisitor);
   }
@@ -117,7 +119,9 @@ class _MarkdownToDocument implements md.NodeVisitor {
 
     if (_listItemVisitedCount > 0 &&
         !const ['li', 'ul', 'ol'].contains(element.tag) &&
-        (element.children == null || element.children!.isEmpty || element.children!.length == 1)) {
+        (element.children == null ||
+            element.children!.isEmpty ||
+            element.children!.length == 1)) {
       // We are visiting the text content of a list item. Add a list item node to the document.
       _addListItem(
         element,
@@ -157,12 +161,17 @@ class _MarkdownToDocument implements md.NodeVisitor {
             // TODO: handle null image URL
             imageUrl: inlineVisitor.imageUrl!,
             altText: inlineVisitor.imageAltText!,
-            expectedBitmapSize: inlineVisitor.width != null || inlineVisitor.height != null
-                ? ExpectedSize(
-                    inlineVisitor.width != null ? int.tryParse(inlineVisitor.width!) : null,
-                    inlineVisitor.height != null ? int.tryParse(inlineVisitor.height!) : null,
-                  )
-                : null,
+            expectedBitmapSize:
+                inlineVisitor.width != null || inlineVisitor.height != null
+                    ? ExpectedSize(
+                        inlineVisitor.width != null
+                            ? int.tryParse(inlineVisitor.width!)
+                            : null,
+                        inlineVisitor.height != null
+                            ? int.tryParse(inlineVisitor.height!)
+                            : null,
+                      )
+                    : null,
           );
         } else {
           _addParagraph(inlineVisitor.attributedText, element.attributes);
@@ -187,7 +196,8 @@ class _MarkdownToDocument implements md.NodeVisitor {
         break;
       case 'li':
         if (_listItemTypeStack.isEmpty) {
-          throw Exception('Tried to parse a markdown list item but the list item type was null');
+          throw Exception(
+              'Tried to parse a markdown list item but the list item type was null');
         }
 
         // Mark that we are visiting a list item.
@@ -275,7 +285,8 @@ class _MarkdownToDocument implements md.NodeVisitor {
     );
   }
 
-  void _addParagraph(AttributedText attributedText, Map<String, String> attributes) {
+  void _addParagraph(
+      AttributedText attributedText, Map<String, String> attributes) {
     final textAlign = attributes['textAlign'];
 
     _content.add(
@@ -351,7 +362,9 @@ class _MarkdownToDocument implements md.NodeVisitor {
   }) {
     late String content;
 
-    if (element.children != null && element.children!.isNotEmpty && element.children!.first is md.UnparsedContent) {
+    if (element.children != null &&
+        element.children!.isNotEmpty &&
+        element.children!.first is md.UnparsedContent) {
       // The list item might contain another sub-list. In that case, the textContent
       // contains the text for the whole list instead of just the current list item.
       // Use the textContent for the first child, which contains only the text
@@ -523,22 +536,25 @@ abstract class ElementToNodeConverter {
 /// Markdown with surrounding `¬` tags, e.g., "this is ¬underline¬ text".
 ///
 /// This [TagSyntax] produces `Element`s with a `u` tag.
-class UnderlineSyntax extends md.TagSyntax {
-  UnderlineSyntax() : super('¬', requiresDelimiterRun: true, allowIntraWord: true);
+class UnderlineSyntax extends md.DelimiterSyntax {
+  UnderlineSyntax()
+      : super('¬', requiresDelimiterRun: true, allowIntraWord: true);
 
   @override
-  md.Node? close(
+  Iterable<md.Node>? close(
     md.InlineParser parser,
     md.Delimiter opener,
     md.Delimiter closer, {
+    required String tag,
     required List<md.Node> Function() getChildren,
   }) {
-    return md.Element('u', getChildren());
+    return [md.Element(tag, getChildren())];
   }
 }
 
 /// Parses a paragraph preceded by an alignment token.
-class _ParagraphWithAlignmentSyntax extends _EmptyLinePreservingParagraphSyntax {
+class _ParagraphWithAlignmentSyntax
+    extends _EmptyLinePreservingParagraphSyntax {
   /// This pattern matches the text aligment notation.
   ///
   /// Possible values are `:---`, `:---:`, `---:` and `-::-`.
@@ -548,7 +564,7 @@ class _ParagraphWithAlignmentSyntax extends _EmptyLinePreservingParagraphSyntax 
 
   @override
   bool canParse(md.BlockParser parser) {
-    if (!_alignmentNotationPattern.hasMatch(parser.current)) {
+    if (!_alignmentNotationPattern.hasMatch(parser.current.content)) {
       return false;
     }
 
@@ -564,7 +580,8 @@ class _ParagraphWithAlignmentSyntax extends _EmptyLinePreservingParagraphSyntax 
     /// We found a paragraph alignment token, but the block after the alignment token isn't a paragraph.
     /// Therefore, the paragraph alignment token is actually regular content. This parser doesn't need to
     /// take any action.
-    if (_standardNonParagraphBlockSyntaxes.any((syntax) => syntax.pattern.hasMatch(nextLine))) {
+    if (_standardNonParagraphBlockSyntaxes
+        .any((syntax) => syntax.pattern.hasMatch(nextLine.content))) {
       return false;
     }
 
@@ -575,7 +592,7 @@ class _ParagraphWithAlignmentSyntax extends _EmptyLinePreservingParagraphSyntax 
 
   @override
   md.Node? parse(md.BlockParser parser) {
-    final match = _alignmentNotationPattern.firstMatch(parser.current);
+    final match = _alignmentNotationPattern.firstMatch(parser.current.content);
 
     // We've parsed the alignment token on the current line. We know a paragraph starts on the
     // next line. Move the parser to the next line so that we can parse the paragraph.
@@ -585,7 +602,10 @@ class _ParagraphWithAlignmentSyntax extends _EmptyLinePreservingParagraphSyntax 
     final paragraph = super.parse(parser);
 
     if (paragraph is md.Element) {
-      paragraph.attributes.addAll({'textAlign': _convertMarkdownAlignmentTokenToSuperEditorAlignment(match!.input)});
+      paragraph.attributes.addAll({
+        'textAlign':
+            _convertMarkdownAlignmentTokenToSuperEditorAlignment(match!.input)
+      });
     }
 
     return paragraph;
@@ -593,7 +613,8 @@ class _ParagraphWithAlignmentSyntax extends _EmptyLinePreservingParagraphSyntax 
 
   /// Converts a markdown alignment token to the textAlign metadata used to configure
   /// the [ParagraphNode] alignment.
-  String _convertMarkdownAlignmentTokenToSuperEditorAlignment(String alignmentToken) {
+  String _convertMarkdownAlignmentTokenToSuperEditorAlignment(
+      String alignmentToken) {
     switch (alignmentToken) {
       case ':---':
         return 'left';
@@ -630,13 +651,14 @@ class _EmptyLinePreservingParagraphSyntax extends md.BlockSyntax {
       return false;
     }
 
-    if (parser.current.isEmpty) {
+    if (parser.current.content.isEmpty) {
       // We consider this input to be a separator between blocks because
       // it started with an empty line. We want to parse this input.
       return true;
     }
 
-    if (_isAtParagraphEnd(parser, ignoreEmptyBlocks: _endsWithHardLineBreak(parser.current))) {
+    if (_isAtParagraphEnd(parser,
+        ignoreEmptyBlocks: _endsWithHardLineBreak(parser.current.content))) {
       // Another parser wants to parse this input. Let the other parser run.
       return false;
     }
@@ -648,12 +670,12 @@ class _EmptyLinePreservingParagraphSyntax extends md.BlockSyntax {
   @override
   md.Node? parse(md.BlockParser parser) {
     final childLines = <String>[];
-    final startsWithEmptyLine = parser.current.isEmpty;
+    final startsWithEmptyLine = parser.current.content.isEmpty;
 
     // A hard line break causes the next line to be treated
     // as part of the same paragraph, except if the next line is
     // the beginning of another block element.
-    bool hasHardLineBreak = _endsWithHardLineBreak(parser.current);
+    bool hasHardLineBreak = _endsWithHardLineBreak(parser.current.content);
 
     if (startsWithEmptyLine) {
       // The parser started at an empty line.
@@ -669,7 +691,7 @@ class _EmptyLinePreservingParagraphSyntax extends md.BlockSyntax {
         return null;
       }
 
-      if (!_blankLinePattern.hasMatch(parser.current)) {
+      if (!_blankLinePattern.hasMatch(parser.current.content)) {
         // We found an empty line, but the following line isn't blank.
         // As there is no hard line break, the first line is consumed
         // as a separator between blocks.
@@ -682,7 +704,7 @@ class _EmptyLinePreservingParagraphSyntax extends md.BlockSyntax {
       childLines.add('');
 
       // Check for a hard line break, so we consume the next line if we found one.
-      hasHardLineBreak = _endsWithHardLineBreak(parser.current);
+      hasHardLineBreak = _endsWithHardLineBreak(parser.current.content);
       parser.advance();
     }
 
@@ -691,9 +713,9 @@ class _EmptyLinePreservingParagraphSyntax extends md.BlockSyntax {
     // ends with a hard line break.
     while (!_isAtParagraphEnd(parser, ignoreEmptyBlocks: hasHardLineBreak)) {
       final currentLine = parser.current;
-      childLines.add(currentLine);
+      childLines.add(currentLine.content);
 
-      hasHardLineBreak = _endsWithHardLineBreak(currentLine);
+      hasHardLineBreak = _endsWithHardLineBreak(currentLine.content);
 
       parser.advance();
     }
@@ -706,7 +728,8 @@ class _EmptyLinePreservingParagraphSyntax extends md.BlockSyntax {
 
     // Remove trailing whitespace from each line of the parsed paragraph
     // and join them into a single string, separated by a line breaks.
-    final contents = md.UnparsedContent(childLines.map((e) => _removeTrailingSpaces(e)).join('\n'));
+    final contents = md.UnparsedContent(
+        childLines.map((e) => _removeTrailingSpaces(e)).join('\n'));
     return _LineBreakSeparatedElement('p', [contents]);
   }
 
@@ -714,7 +737,8 @@ class _EmptyLinePreservingParagraphSyntax extends md.BlockSyntax {
   /// block syntax can parse the current input.
   ///
   /// An empty line ends the paragraph, unless [ignoreEmptyBlocks] is `true`.
-  bool _isAtParagraphEnd(md.BlockParser parser, {required bool ignoreEmptyBlocks}) {
+  bool _isAtParagraphEnd(md.BlockParser parser,
+      {required bool ignoreEmptyBlocks}) {
     if (parser.isDone) {
       return true;
     }
@@ -751,11 +775,14 @@ class _EmptyLinePreservingParagraphSyntax extends md.BlockSyntax {
 ///
 /// The default [Element] implementation ignores all line breaks.
 class _LineBreakSeparatedElement extends md.Element {
-  _LineBreakSeparatedElement(String tag, List<md.Node>? children) : super(tag, children);
+  _LineBreakSeparatedElement(String tag, List<md.Node>? children)
+      : super(tag, children);
 
   @override
   String get textContent {
-    return (children ?? []).map((md.Node? child) => child!.textContent).join('\n');
+    return (children ?? [])
+        .map((md.Node? child) => child!.textContent)
+        .join('\n');
   }
 }
 
@@ -777,7 +804,7 @@ class _TaskSyntax extends md.BlockSyntax {
 
   @override
   md.Node? parse(md.BlockParser parser) {
-    final match = pattern.firstMatch(parser.current);
+    final match = pattern.firstMatch(parser.current.content);
     if (match == null) {
       return null;
     }
@@ -795,8 +822,9 @@ class _TaskSyntax extends md.BlockSyntax {
     // - find a blank line OR
     // - find the start of another block element (including another task)
     while (!parser.isDone &&
-        !_blankLinePattern.hasMatch(parser.current) &&
-        !_standardNonParagraphBlockSyntaxes.any((syntax) => syntax.pattern.hasMatch(parser.current))) {
+        !_blankLinePattern.hasMatch(parser.current.content) &&
+        !_standardNonParagraphBlockSyntaxes
+            .any((syntax) => syntax.pattern.hasMatch(parser.current.content))) {
       buffer.write('\n');
       buffer.write(parser.current);
 
@@ -832,7 +860,7 @@ class _HeaderWithAlignmentSyntax extends md.BlockSyntax {
 
   @override
   bool canParse(md.BlockParser parser) {
-    if (!_alignmentNotationPattern.hasMatch(parser.current)) {
+    if (!_alignmentNotationPattern.hasMatch(parser.current.content)) {
       return false;
     }
 
@@ -846,7 +874,7 @@ class _HeaderWithAlignmentSyntax extends md.BlockSyntax {
     }
 
     // Only parse if the next line is header.
-    if (!_headerSyntax.pattern.hasMatch(nextLine)) {
+    if (!_headerSyntax.pattern.hasMatch(nextLine.content)) {
       return false;
     }
 
@@ -855,7 +883,7 @@ class _HeaderWithAlignmentSyntax extends md.BlockSyntax {
 
   @override
   md.Node? parse(md.BlockParser parser) {
-    final match = _alignmentNotationPattern.firstMatch(parser.current);
+    final match = _alignmentNotationPattern.firstMatch(parser.current.content);
 
     // We've parsed the alignment token on the current line. We know a header starts on the
     // next line. Move the parser to the next line so that we can parse the header.
@@ -864,7 +892,10 @@ class _HeaderWithAlignmentSyntax extends md.BlockSyntax {
     final headerNode = _headerSyntax.parse(parser);
 
     if (headerNode is md.Element) {
-      headerNode.attributes.addAll({'textAlign': _convertMarkdownAlignmentTokenToSuperEditorAlignment(match!.input)});
+      headerNode.attributes.addAll({
+        'textAlign':
+            _convertMarkdownAlignmentTokenToSuperEditorAlignment(match!.input)
+      });
     }
 
     return headerNode;
@@ -872,7 +903,8 @@ class _HeaderWithAlignmentSyntax extends md.BlockSyntax {
 
   /// Converts a markdown alignment token to the textAlign metadata used to configure
   /// the [ParagraphNode] alignment.
-  String _convertMarkdownAlignmentTokenToSuperEditorAlignment(String alignmentToken) {
+  String _convertMarkdownAlignmentTokenToSuperEditorAlignment(
+      String alignmentToken) {
     switch (alignmentToken) {
       case ':---':
         return 'left';
